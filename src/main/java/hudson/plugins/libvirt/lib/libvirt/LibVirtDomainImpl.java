@@ -85,7 +85,7 @@ public class LibVirtDomainImpl implements IDomain {
     public void create() throws VirtException {
         try {
             if (domain.getInfo().state == DomainInfo.DomainState.VIR_DOMAIN_PAUSED){
-                domain.restore();
+                domain.resume();
             } else {
                 domain.create();
             }

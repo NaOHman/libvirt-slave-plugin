@@ -1,0 +1,8 @@
+<?jelly escape-by-default='true'?>
+<j:jelly xmlns:j="jelly:core" xmlns:st="jelly:stapler" xmlns:d="jelly:define" xmlns:l="/lib/layout"
+        xmlns:t="/lib/hudson" xmlns:f="/lib/form">
+    <f:entry title="${%Idle Time}" field="maxIdleTime" name="maxIdleTime" help="/plugin/libvirt-slave/help-libvirt-retention.html">
+        <f:number clazz="required number" min="1" value="${instance.maxIdleTime}"
+            name="libvirtRetentionStrategy.maxIdleTime" checkMessage="${%Idle Time must be a number above 1}"/>
+    </f:entry>
+</j:jelly>
