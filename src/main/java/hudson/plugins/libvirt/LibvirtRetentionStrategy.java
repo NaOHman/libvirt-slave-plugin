@@ -34,7 +34,7 @@ public class LibvirtRetentionStrategy extends RetentionStrategy<VirtualMachineSl
     @GuardedBy("hudson.model.Queue.lock")
     public long check(final VirtualMachineSlaveComputer vm) {
         VirtualMachineLauncher vmL = (VirtualMachineLauncher) vm.getLauncher();
-        Hypervisor hypervisor = vmL.findOurHypervisorInstance();
+        Hypervisor hypervisor = vmL.getHypervisor();
         boolean hypervisorFull = hypervisor.getCurrentOnlineSlaveCount() >= hypervisor.getMaxOnlineSlaves();
         if (vm.isOnline() && vm.isIdle() && hypervisorFull){
             if (vm.getIdleStartMilliseconds() > getMaxIdleTime() * 60 * 1000)

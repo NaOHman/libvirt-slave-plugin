@@ -65,7 +65,7 @@ public class LibvirtSnapshotRevertRunListener extends RunListener<Run<?, ?>> {
         if (launcher instanceof ComputerLauncher) {
 
             VirtualMachineLauncher slaveLauncher = (VirtualMachineLauncher) launcher;
-            Hypervisor hypervisor = slaveLauncher.findOurHypervisorInstance();
+            Hypervisor hypervisor = slaveLauncher.getHypervisor();
 
             try {
                 Map<String, IDomain> domains = hypervisor.getDomains();

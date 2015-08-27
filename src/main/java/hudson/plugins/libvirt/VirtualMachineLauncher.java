@@ -25,6 +25,7 @@ import hudson.model.TaskListener;
 import hudson.model.Descriptor;
 import hudson.model.Hudson;
 import hudson.plugins.libvirt.lib.IDomain;
+import hudson.plugins.libvirt.lib.VirtException;
 import hudson.slaves.Cloud;
 import hudson.slaves.ComputerLauncher;
 import hudson.slaves.SlaveComputer;
@@ -43,7 +44,6 @@ public class VirtualMachineLauncher extends ComputerLauncher {
 
     private static final Logger LOGGER = Logger.getLogger(VirtualMachineLauncher.class.getName());
     private ComputerLauncher delegate;
-    private transient VirtualMachine virtualMachine;
     private String hypervisorDescription;
     private String virtualMachineName;
     private String snapshotName;
@@ -60,36 +60,25 @@ public class VirtualMachineLauncher extends ComputerLauncher {
         this.hypervisorDescription = hypervisorDescription;
         this.WAIT_TIME_MS = waitingTimeSecs*1000;
         this.timesToRetryOnFailure = timesToRetryOnFailure;
-        lookupVirtualMachineHandle();
     }
 
-    private void lookupVirtualMachineHandle() {
+    public VirtualMachine getVirtualMachine() throws RuntimeException{
         if (hypervisorDescription != null && virtualMachineName != null) {
             LOGGER.log(Level.FINE, "Grabbing hypervisor...");
-            Hypervisor hypervisor = null;
-            for (Cloud cloud : Hudson.getInstance().clouds) {
-                if (cloud instanceof Hypervisor && ((Hypervisor) cloud).getHypervisorDescription().equals(hypervisorDescription)) {
-                    hypervisor = (Hypervisor) cloud;
-                    break;
-                }
-            }
+            Hypervisor hypervisor = getHypervisor();
             LOGGER.log(Level.FINE, "Hypervisor found, searching for a matching virtual machine for \"" + virtualMachineName + "\"...");
             for (VirtualMachine vm : hypervisor.getVirtualMachines()) {
                 if (vm.getName().equals(virtualMachineName)) {
-                    virtualMachine = vm;
-                    break;
+                    return vm;
                 }
             }
         }
+        LOGGER.log(Level.SEVERE, "Couldn't find vm " + virtualMachineName + " on hypervisor " + hypervisorDescription);
+        throw new RuntimeException("Could not find virtual machine on the hypervisor");
     }
     
     public ComputerLauncher getDelegate() {
         return delegate;
-    }
-
-    public VirtualMachine getVirtualMachine() {
-        lookupVirtualMachineHandle();
-        return virtualMachine;
     }
 
     public String getVirtualMachineName() {
@@ -101,10 +90,10 @@ public class VirtualMachineLauncher extends ComputerLauncher {
         return true;
     }
 
-    public Hypervisor findOurHypervisorInstance() throws RuntimeException {
+    public Hypervisor getHypervisor() throws RuntimeException {
         if (hypervisorDescription != null && virtualMachineName != null) {
             Hypervisor hypervisor = null;
-            for (Cloud cloud : Hudson.getInstance().clouds) {
+            for (Cloud cloud : Jenkins.getInstance().clouds) {
                 if (cloud instanceof Hypervisor && ((Hypervisor) cloud).getHypervisorDescription().equals(hypervisorDescription)) {
                     hypervisor = (Hypervisor) cloud;
                     return hypervisor;
@@ -120,15 +109,14 @@ public class VirtualMachineLauncher extends ComputerLauncher {
     	
     	taskListener.getLogger().println("Virtual machine \"" + virtualMachineName + "\" (slave title \"" + slaveComputer.getDisplayName() + "\") is to be started.");
     	try {
-	        if (virtualMachine == null) {
-	            taskListener.getLogger().println("No connection ready to the Hypervisor, connecting...");
-	            lookupVirtualMachineHandle();
-	            if (virtualMachine == null) // still null? no such vm!
-	            	throw new Exception("Virtual machine \"" + virtualMachineName + "\" (slave title \"" + slaveComputer.getDisplayName() + "\") not found on the specified hypervisor!");
-	        }
-        
-            Map<String, IDomain> computers = virtualMachine.getHypervisor().getDomains();
-            IDomain domain = computers.get(virtualMachine.getName());
+            taskListener.getLogger().println("Connecting to the hypervisor...");
+            VirtualMachine virtualMachine = getVirtualMachine(); //throw runtime
+            Hypervisor hypervisor = getHypervisor();
+            IDomain domain = hypervisor.getDomainByName(virtualMachine.getName()); //virt and runtime exceptions
+            if (hypervisor.isFull()){ //Should be checked by the listener but, just to be sure
+                taskListener.getLogger().println("Hypervisor " + hypervisorDescription + " is full, can't launch new vms");
+                return;
+            }
             if (domain != null) {
                 if( domain.isNotBlockedAndNotRunning() ) {
                     taskListener.getLogger().println("Starting, waiting for " + WAIT_TIME_MS + "ms to let it fully boot up...");
@@ -156,13 +144,21 @@ public class VirtualMachineLauncher extends ComputerLauncher {
 
                         taskListener.getLogger().println("Not up yet, waiting for " + WAIT_TIME_MS + "ms more (" +
                                                          attempts + "/" + timesToRetryOnFailure + " retries)...");
+                        //Make sure a third party didn't destroy or undefine the vm between retry attempts
+                        domain = getHypervisor().getDomainByName(virtualMachine.getName());
+                        if (domain == null){
+                            throw new IOException("Could not find VM \"" + virtualMachine.getName() + "\" aborting");
+                        }
+                        if (domain.isNotBlockedAndNotRunning()) {
+                            taskListener.getLogger().println("Could not create VM \"" + virtualMachine.getName() + "\" trying again");
+                            domain.create();
+                        }
                         Thread.sleep(WAIT_TIME_MS);
                     }
                 } else {
                     taskListener.getLogger().println("Already running, no startup required.");
-
-                taskListener.getLogger().println("Connecting slave client.");
-                delegate.launch(slaveComputer, taskListener);
+                    taskListener.getLogger().println("Connecting slave client.");
+                    delegate.launch(slaveComputer, taskListener);
                 }
             } else {
 	            throw new IOException("VM \"" + virtualMachine.getName() + "\" (slave title \"" + slaveComputer.getDisplayName() + "\") not found!");
@@ -171,7 +167,7 @@ public class VirtualMachineLauncher extends ComputerLauncher {
             taskListener.fatalError(e.getMessage(), e);
             
             LogRecord rec = new LogRecord(Level.SEVERE, "Error while launching {0} on Hypervisor {1}.");
-            rec.setParameters(new Object[]{virtualMachine.getName(), virtualMachine.getHypervisor().getHypervisorURI()});
+            rec.setParameters(new Object[]{virtualMachineName, hypervisorDescription});
             rec.setThrown(e);
             LOGGER.log(rec);
             throw e;
@@ -179,7 +175,7 @@ public class VirtualMachineLauncher extends ComputerLauncher {
         	taskListener.fatalError(t.getMessage(), t);
             
             LogRecord rec = new LogRecord(Level.SEVERE, "Error while launching {0} on Hypervisor {1}.");
-            rec.setParameters(new Object[]{virtualMachine.getName(), virtualMachine.getHypervisor().getHypervisorURI()});
+            rec.setParameters(new Object[]{virtualMachineName, hypervisorDescription});
             rec.setThrown(t);
             LOGGER.log(rec);
         }
@@ -188,6 +184,9 @@ public class VirtualMachineLauncher extends ComputerLauncher {
     @Override
     public synchronized void afterDisconnect(SlaveComputer slaveComputer, TaskListener taskListener) {
         delegate.afterDisconnect(slaveComputer, taskListener);
+        try {
+            getHypervisor().markVMOffline(slaveComputer.getDisplayName(), getVirtualMachineName());
+        } catch (VirtException e) {}
     }
 
     @Override

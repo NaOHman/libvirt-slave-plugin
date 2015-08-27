@@ -55,7 +55,7 @@ public class VirtualMachineSlaveComputer extends SlaveComputer {
 		VirtualMachineSlave slave = (VirtualMachineSlave) getNode();
 		String virtualMachineName = slave.getVirtualMachineName();
 		VirtualMachineLauncher vmL = (VirtualMachineLauncher) getLauncher();
-		Hypervisor hypervisor = vmL.findOurHypervisorInstance();
+		Hypervisor hypervisor = vmL.getHypervisor();
 		String reason = "";
 		if (cause != null) {
 			reason =  "reason: "+cause+" ("+cause.getClass().getName()+")";
@@ -63,8 +63,7 @@ public class VirtualMachineSlaveComputer extends SlaveComputer {
 		logger.log(Level.INFO, "Virtual machine \"" + virtualMachineName + "\" (slave \"" + getDisplayName() + "\") is to be shut down." + reason);
 		taskListener.getLogger().println("Virtual machine \"" + virtualMachineName + "\" (slave \"" + getDisplayName() + "\") is to be shut down.");
 		try {			
-            Map<String, IDomain> computers = hypervisor.getDomains();
-            IDomain domain = computers.get(virtualMachineName);
+            IDomain domain = hypervisor.getDomainByName(virtualMachineName);
             if (domain != null) {
             	if (domain.isRunningOrBlocked()) {
             		String snapshotName = slave.getSnapshotName();
@@ -80,14 +79,13 @@ public class VirtualMachineSlaveComputer extends SlaveComputer {
                         } else if (slave.getShutdownMethod().equals("destroy")) {
                             domain.destroy();
                         } else {
-                    	domain.shutdown();
-                    }
+                    	    domain.shutdown();
+                        }
                     }
                 } else {
                     taskListener.getLogger().println("Already suspended, no shutdown required.");
                 }
-                Hypervisor vmC = vmL.findOurHypervisorInstance();
-                vmC.markVMOffline(getDisplayName(), vmL.getVirtualMachineName());
+                hypervisor.markVMOffline(getDisplayName(), vmL.getVirtualMachineName());
             } else {
             	// log to slave 
             	taskListener.getLogger().println("\"" + virtualMachineName + "\" not found on Hypervisor, can not shut down!");

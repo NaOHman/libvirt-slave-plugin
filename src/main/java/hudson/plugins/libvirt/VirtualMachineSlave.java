@@ -23,12 +23,15 @@ package hudson.plugins.libvirt;
 
 import hudson.AbortException;
 import hudson.Extension;
+import hudson.FilePath;
 import hudson.Util;
 import hudson.model.TaskListener;
 import hudson.model.Computer;
 import hudson.model.Descriptor;
 import hudson.model.Hudson;
 import hudson.model.Slave;
+import hudson.plugins.libvirt.lib.VirtException;
+import hudson.remoting.Channel;
 import hudson.slaves.Cloud;
 import hudson.slaves.ComputerListener;
 import hudson.slaves.NodeProperty;
@@ -133,10 +136,30 @@ public class VirtualMachineSlave extends Slave {
             }
             
             VirtualMachineLauncher vmL = (VirtualMachineLauncher) ((SlaveComputer) c).getLauncher();
-            Hypervisor vmC = vmL.findOurHypervisorInstance();
+            Hypervisor vmC = vmL.getHypervisor();
             
             if (!vmC.markVMOnline(c.getDisplayName(), vmL.getVirtualMachineName()))
                 throw new AbortException("Capacity threshold  (" + vmC.getMaxOnlineSlaves() + ") reached at hypervisor \"" + vmC.getHypervisorDescription() + "\", slave commissioning delayed.");
+        }
+
+        @Override
+        public void onLaunchFailure(Computer c, TaskListener taskListener) {
+            if (!(c.getNode() instanceof VirtualMachineSlave)) {
+                return;
+            }
+
+            VirtualMachineLauncher vmL = (VirtualMachineLauncher) ((SlaveComputer) c).getLauncher();
+            Hypervisor vmC = vmL.getHypervisor();
+            try {
+                vmC.markVMOffline(c.getDisplayName(), vmL.getVirtualMachineName());
+            } catch (VirtException e) {}
+        }
+
+        @Override
+        public void preOnline(Computer c, Channel chan, FilePath root, TaskListener taskListener) throws IOException{
+            if (chan.isClosingOrClosed()) {
+                throw new IOException("Channel closing, I can't handle this");
+            }
         }
     }
 

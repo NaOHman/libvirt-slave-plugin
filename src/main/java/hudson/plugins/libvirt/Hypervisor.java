@@ -83,7 +83,6 @@ public class Hypervisor extends Cloud {
     private final int hypervisorSshPort;
     private final String username;
     private final int maxOnlineSlaves;
-    private transient int currentOnlineSlaveCount = 0;
     private transient Hashtable<String, String> currentOnline;
     private transient IConnect connection;
     private final boolean useNativeJavaConnection;
@@ -202,7 +201,8 @@ public class Hypervisor extends Cloud {
     }
 
     public synchronized int getCurrentOnlineSlaveCount() {
-        return currentOnlineSlaveCount;
+        ensureLists();
+        return currentOnline.size();
     }
 
     public String getHypervisorDescription() {
@@ -250,6 +250,13 @@ public class Hypervisor extends Cloud {
         return domains;
     }
 
+    public IDomain getDomainByName(String name) {
+        try {
+           return getDomains().get(name);
+        } catch (VirtException e) {
+            return null;
+        }
+    }
     /**
      * Returns a <code>List</code> of VMs configured on the hypervisor. This method always retrieves the current list of
      * VMs to ensure that newly available instances show up right away.
@@ -314,6 +321,10 @@ public class Hypervisor extends Cloud {
         return sb.toString();
     }
 
+    public synchronized boolean isFull(){
+        return getCurrentOnlineSlaveCount() >= maxOnlineSlaves;
+    }
+
     public synchronized Boolean canMarkVMOnline(String slaveName, String vmName) {
         ensureLists();
         
@@ -351,16 +362,13 @@ public class Hypervisor extends Cloud {
             return Boolean.FALSE;
         
         currentOnline.put(slaveName, vmName);
-        currentOnlineSlaveCount++;
-        
+
         return Boolean.TRUE;
     }
 
     public synchronized void markVMOffline(String slaveName, String vmName) throws VirtException {
         ensureLists();
-        
-        if (currentOnline.remove(slaveName) != null)
-            currentOnlineSlaveCount--;
+        currentOnline.remove(slaveName);
     }
 
     @Override
