@@ -31,15 +31,21 @@ public class LibvirtRetentionStrategy extends RetentionStrategy<VirtualMachineSl
     }
 
     @Override
+    public boolean isManualLaunchAllowed(VirtualMachineSlaveComputer vm){
+        VirtualMachineLauncher vML = (VirtualMachineLauncher) vm.getLauncher();
+        return !vML.getHypervisor().isFull();
+    }
+
+    @Override
     @GuardedBy("hudson.model.Queue.lock")
     public long check(final VirtualMachineSlaveComputer vm) {
         VirtualMachineLauncher vmL = (VirtualMachineLauncher) vm.getLauncher();
         Hypervisor hypervisor = vmL.getHypervisor();
-        boolean hypervisorFull = hypervisor.getCurrentOnlineSlaveCount() >= hypervisor.getMaxOnlineSlaves();
-        if (vm.isOnline() && vm.isIdle() && hypervisorFull){
-            if (vm.getIdleStartMilliseconds() > getMaxIdleTime() * 60 * 1000)
+        if (vm.isOnline() && vm.isIdle() && hypervisor.isFull()){
+            long idleTime = System.currentTimeMillis() - vm.getIdleStartMilliseconds();
+            if (idleTime > getMaxIdleTime() * 60 * 1000)
                 vm.disconnect(OfflineCause.create(Messages._CLI_wait_node_offline_shortDescription()));
-        } else if (shouldLaunch(vm) && !hypervisorFull) {
+        } else if (shouldLaunch(vm) && !hypervisor.isFull()) {
             vm.connect(false);
         }
         return 1;
