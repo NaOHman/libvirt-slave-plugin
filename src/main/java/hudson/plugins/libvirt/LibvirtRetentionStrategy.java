@@ -43,54 +43,68 @@ public class LibvirtRetentionStrategy extends RetentionStrategy<VirtualMachineSl
     public long check(final VirtualMachineSlaveComputer vm) {
         VirtualMachineLauncher vmL = (VirtualMachineLauncher) vm.getLauncher();
         Hypervisor hypervisor = vmL.getHypervisor();
-        if (vm.isOnline() && vm.isIdle() && hypervisor.isFull()){
-            LOGGER.log(Level.INFO, "CHECKING " + vm.getDisplayName() + " Hyper is Full, vm is idle");
-            long idleTime = System.currentTimeMillis() - vm.getIdleStartMilliseconds();
-            if (idleTime > getMaxIdleTime() * 60 * 1000)
-                vm.disconnect(OfflineCause.create(Messages._CLI_wait_node_offline_shortDescription()));
-        } else if (shouldLaunch(vm) && !hypervisor.isFull()) {
-            LOGGER.log(Level.INFO, "CHECKING " + vm.getDisplayName() + " Hyper is not full starting vm");
-            vm.connect(false);
-        } else {
-            LOGGER.log(Level.INFO, "CHECKING " + vm.getDisplayName() + " Nothing to do");
+        if (vm.isOffline() && hasUniqueJob(vm)){
+            if (hypervisor.isFull()){
+                VirtualMachineSlaveComputer slacker = getIdleVM();
+                if (slacker != null) {
+                    slacker.disconnect(OfflineCause.create(Messages._CLI_wait_node_offline_shortDescription()));
+                    vm.connect(false);
+                }
+                LOGGER.log(Level.INFO, "CHECKING " + vm.getDisplayName() + " Hyper is Full, everyone is busy");
+            } else {
+                vm.connect(false);
+            }
         }
         return 1;
     }
 
-    private boolean shouldLaunch(final SlaveComputer c) {
-        if (c.isOffline() && c.isLaunchSupported()) {
-            final HashMap<Computer, Integer> availableComputers = new HashMap<Computer, Integer>();
-            for (Computer o : Jenkins.getInstance().getComputers()) {
-                if ((o.isOnline() || o.isConnecting()) && o.isPartiallyIdle() && o.isAcceptingTasks()) {
-                    final int idleExecutors = o.countIdle();
-                    if (idleExecutors>0)
-                        availableComputers.put(o, idleExecutors);
+    private VirtualMachineSlaveComputer getIdleVM(){
+        for (Computer c : Jenkins.getInstance().getComputers()){
+            if (c instanceof VirtualMachineSlaveComputer && c.isOnline() && c.isIdle()){
+                if (System.currentTimeMillis() - c.getIdleStartMilliseconds() > 60 * 1000){
+                    VirtualMachineSlaveComputer vmSC = (VirtualMachineSlaveComputer) c;
+                    if (!hasUniqueJob(vmSC))
+                        return vmSC;
                 }
             }
-            for (Queue.BuildableItem item : Queue.getInstance().getBuildableItems()) {
-                // can any of the currently idle executors take this task?
-                // assume the answer is no until we can find such an executor
-                boolean needExecutor = true;
-                for (Computer o : Collections.unmodifiableSet(availableComputers.keySet())) {
-                    Node otherNode = o.getNode();
-                    if (otherNode != null && otherNode.canTake(item) == null) {
-                        needExecutor = false;
-                        final int availableExecutors = availableComputers.remove(o);
-                        if (availableExecutors > 1) {
-                            availableComputers.put(o, availableExecutors - 1);
-                        } else {
-                            availableComputers.remove(o);
-                        }
-                        break;
+        }
+        return null;
+    }
+
+    private boolean hasUniqueJob(final SlaveComputer c) {
+        Node node = c.getNode();
+        if (node == null){
+            return false;
+        }
+        final HashMap<Computer, Integer> availableComputers = new HashMap<Computer, Integer>();
+        for (Computer o : Jenkins.getInstance().getComputers()) {
+            if ((o.isOnline() || o.isConnecting()) && o.isPartiallyIdle() && o.isAcceptingTasks()) {
+                final int idleExecutors = o.countIdle();
+                if (idleExecutors>0)
+                    availableComputers.put(o, idleExecutors);
+            }
+        }
+        for (Queue.BuildableItem item : Queue.getInstance().getBuildableItems()) {
+            // can any of the currently idle executors take this task?
+            // assume the answer is no until we can find such an executor
+            boolean needExecutor = true;
+            for (Computer o : Collections.unmodifiableSet(availableComputers.keySet())) {
+                Node otherNode = o.getNode();
+                if (otherNode != null && otherNode.canTake(item) == null) {
+                    needExecutor = false;
+                    final int availableExecutors = availableComputers.remove(o);
+                    if (availableExecutors > 1) {
+                        availableComputers.put(o, availableExecutors - 1);
+                    } else {
+                        availableComputers.remove(o);
                     }
-                }
-                // this 'item' cannot be built by any of the existing idle nodes, but it can be built by 'c'
-                Node checkedNode = c.getNode();
-                if (needExecutor && checkedNode != null && checkedNode.canTake(item) == null) {
-                    return true;
+                    break;
                 }
             }
-        } 
+            if (needExecutor && node.canTake(item) == null) {
+                return true;
+            }
+        }
         return false;
     }
 
@@ -102,7 +116,7 @@ public class LibvirtRetentionStrategy extends RetentionStrategy<VirtualMachineSl
     public static class DescriptorImpl extends Descriptor<RetentionStrategy<?>> {
         @Override
         public String getDisplayName()  {
-            return "Launch when needed, Shutdown if idle and hypervisor is full";
+            return "Kill idle slaves when hypervisor is full and this slave is in demand";
         }
     }
 }
