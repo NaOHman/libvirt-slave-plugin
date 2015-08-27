@@ -20,9 +20,9 @@
 
 package hudson.plugins.libvirt;
 
-import hudson.model.TaskListener;
-import hudson.model.Slave;
+import hudson.model.*;
 import hudson.plugins.libvirt.lib.IDomain;
+import hudson.plugins.libvirt.lib.VirtException;
 import hudson.slaves.OfflineCause;
 import hudson.plugins.libvirt.lib.IConnect;
 import hudson.slaves.SlaveComputer;
@@ -50,20 +50,42 @@ public class VirtualMachineSlaveComputer extends SlaveComputer {
         this.taskListener = new StreamTaskListener(new ReopenableRotatingFileOutputStream(getLogFile(),10));
     }
 
+    @Override
+    protected void onRemoved(){
+        try {
+            getHypervisor().markVMOffline(getDisplayName(), getVirtualMachineName());
+        } catch (VirtException e) {}
+        super.onRemoved();
+    }
+
+    @Override
+    protected void kill(){ //message the hypervisor but don't do anything else
+        try {
+            getHypervisor().markVMOffline(getDisplayName(), getVirtualMachineName());
+        } catch (VirtException e) {}
+        super.kill();
+    }
+
+    @Override
+    public void taskCompletedWithProblems(Executor executor, Queue.Task task, long duration, Throwable problem){
+        //Use to recover from accidental slave shutdown
+        //have hypervisor check to make sure the vm is still on
+        logger.log(Level.WARNING, "-----> VM task interrupted by " + problem.toString());
+        super.taskCompletedWithProblems(executor, task, duration, problem);
+    }
+
 	@Override
 	public Future<?> disconnect(OfflineCause cause) {
 		VirtualMachineSlave slave = (VirtualMachineSlave) getNode();
-		String virtualMachineName = slave.getVirtualMachineName();
-		VirtualMachineLauncher vmL = (VirtualMachineLauncher) getLauncher();
-		Hypervisor hypervisor = vmL.getHypervisor();
+		Hypervisor hypervisor = getHypervisor();
 		String reason = "";
 		if (cause != null) {
 			reason =  "reason: "+cause+" ("+cause.getClass().getName()+")";
 		}
-		logger.log(Level.INFO, "Virtual machine \"" + virtualMachineName + "\" (slave \"" + getDisplayName() + "\") is to be shut down." + reason);
-		taskListener.getLogger().println("Virtual machine \"" + virtualMachineName + "\" (slave \"" + getDisplayName() + "\") is to be shut down.");
+		logger.log(Level.INFO, "Virtual machine \"" + getVirtualMachineName() + "\" (slave \"" + getDisplayName() + "\") is to be shut down." + reason);
+		taskListener.getLogger().println("Virtual machine \"" + getVirtualMachineName() + "\" (slave \"" + getDisplayName() + "\") is to be shut down.");
 		try {			
-            IDomain domain = hypervisor.getDomainByName(virtualMachineName);
+            IDomain domain = hypervisor.getDomainByName(getVirtualMachineName());
             if (domain != null) {
             	if (domain.isRunningOrBlocked()) {
             		String snapshotName = slave.getSnapshotName();
@@ -85,14 +107,14 @@ public class VirtualMachineSlaveComputer extends SlaveComputer {
                 } else {
                     taskListener.getLogger().println("Already suspended, no shutdown required.");
                 }
-                hypervisor.markVMOffline(getDisplayName(), vmL.getVirtualMachineName());
+                hypervisor.markVMOffline(getDisplayName(), getVirtualMachineName());
             } else {
             	// log to slave 
-            	taskListener.getLogger().println("\"" + virtualMachineName + "\" not found on Hypervisor, can not shut down!");
+            	taskListener.getLogger().println("\"" + getVirtualMachineName() + "\" not found on Hypervisor, can not shut down!");
             	
             	// log to jenkins
             	LogRecord rec = new LogRecord(Level.WARNING, "Can not shut down {0} on Hypervisor {1}, domain not found!");
-                rec.setParameters(new Object[]{virtualMachineName, hypervisor.getHypervisorURI()});
+                rec.setParameters(new Object[]{getVirtualMachineName(), hypervisor.getHypervisorURI()});
                 logger.log(rec);
             }
         } catch (Throwable t) {
@@ -105,5 +127,14 @@ public class VirtualMachineSlaveComputer extends SlaveComputer {
         }
 		return super.disconnect(cause);
 	}
-    	
+
+    public Hypervisor getHypervisor(){
+        VirtualMachineLauncher vmL = (VirtualMachineLauncher) getLauncher();
+        return vmL.getHypervisor();
+    }
+
+    public String getVirtualMachineName(){
+        VirtualMachineLauncher vmL = (VirtualMachineLauncher) getLauncher();
+        return vmL.getVirtualMachineName();
+    }
 }

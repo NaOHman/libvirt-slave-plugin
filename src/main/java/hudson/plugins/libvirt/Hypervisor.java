@@ -76,17 +76,22 @@ import org.kohsuke.stapler.StaplerRequest;
 public class Hypervisor extends Cloud {
 
     private static final Logger LOGGER = Logger.getLogger(Hypervisor.class.getName());
-        
+
+    //configuration values
     private final String hypervisorType;
     private final String hypervisorHost;
     private final String hypervisorSystemUrl;
     private final int hypervisorSshPort;
     private final String username;
-    private final int maxOnlineSlaves;
-    private transient Hashtable<String, String> currentOnline;
-    private transient IConnect connection;
     private final boolean useNativeJavaConnection;
     private final String credentialsId;
+    private final int maxOnlineSlaves;
+
+
+
+    //State
+    private transient Hashtable<String, String> currentOnline;
+    private transient IConnect connection;
 
 
     @DataBoundConstructor
@@ -217,9 +222,8 @@ public class Hypervisor extends Cloud {
         if (con != null) {
             for (String c : con.listDefinedDomains()) {
                 if (c != null && !c.equals("")) {
-                    IDomain domain = null;
                     try {
-                        domain = con.domainLookupByName(c);
+                        IDomain domain = con.domainLookupByName(c);
                         domains.put(domain.getName(), domain);
                     } catch (Exception e) {
                         LogRecord rec = new LogRecord(Level.WARNING, "Error retrieving information for domain with name: {0}.");
@@ -230,9 +234,8 @@ public class Hypervisor extends Cloud {
                 }
             }
             for (int c : con.listDomains()) {
-                IDomain domain = null;
                 try {
-                    domain = con.domainLookupByID(c);
+                    IDomain domain = con.domainLookupByID(c);
                     domains.put(domain.getName(), domain);
                 } catch (Exception e) {
                     LogRecord rec = new LogRecord(Level.WARNING, "Error retrieving information for domain with id: {0}.");
@@ -322,7 +325,7 @@ public class Hypervisor extends Cloud {
     }
 
     public synchronized boolean isFull(){
-        return (maxOnlineSlaves >0) && (getCurrentOnlineSlaveCount() >= maxOnlineSlaves);
+        return (maxOnlineSlaves > 0) && (getCurrentOnlineSlaveCount() >= maxOnlineSlaves);
     }
 
     public synchronized Boolean canMarkVMOnline(String slaveName, String vmName) {
