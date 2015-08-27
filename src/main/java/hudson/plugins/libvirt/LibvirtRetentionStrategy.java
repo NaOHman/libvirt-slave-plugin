@@ -7,7 +7,9 @@
 package hudson.plugins.libvirt;
 
 import hudson.Extension;
-import java.util.logging.Logger; 
+
+import java.util.logging.Level;
+import java.util.logging.Logger;
 import hudson.slaves.RetentionStrategy;
 import hudson.slaves.SlaveComputer;
 import hudson.slaves.OfflineCause;
@@ -42,11 +44,15 @@ public class LibvirtRetentionStrategy extends RetentionStrategy<VirtualMachineSl
         VirtualMachineLauncher vmL = (VirtualMachineLauncher) vm.getLauncher();
         Hypervisor hypervisor = vmL.getHypervisor();
         if (vm.isOnline() && vm.isIdle() && hypervisor.isFull()){
+            LOGGER.log(Level.FINE, "CHECKING " + vm.getDisplayName() + " Hyper is Full, vm is idle");
             long idleTime = System.currentTimeMillis() - vm.getIdleStartMilliseconds();
             if (idleTime > getMaxIdleTime() * 60 * 1000)
                 vm.disconnect(OfflineCause.create(Messages._CLI_wait_node_offline_shortDescription()));
         } else if (shouldLaunch(vm) && !hypervisor.isFull()) {
+            LOGGER.log(Level.FINE, "CHECKING " + vm.getDisplayName() + " Hyper is not full starting vm");
             vm.connect(false);
+        } else {
+            LOGGER.log(Level.FINE, "CHECKING " + vm.getDisplayName() + " Nothing to do");
         }
         return 1;
     }

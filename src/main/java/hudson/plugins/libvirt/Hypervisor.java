@@ -322,14 +322,14 @@ public class Hypervisor extends Cloud {
     }
 
     public synchronized boolean isFull(){
-        return getCurrentOnlineSlaveCount() >= maxOnlineSlaves;
+        return (maxOnlineSlaves >0) && (getCurrentOnlineSlaveCount() >= maxOnlineSlaves);
     }
 
     public synchronized Boolean canMarkVMOnline(String slaveName, String vmName) {
         ensureLists();
         
         // Don't allow more than max.
-        if ((maxOnlineSlaves > 0) && (currentOnline.size() >= maxOnlineSlaves))
+        if (isFull())
             return Boolean.FALSE;
         
         // Don't allow two slaves to the same VM to fire up.
